@@ -18,6 +18,28 @@ Build a user-friendly web dashboard where users can:
 
 ---
 
+## 📈 Problems Encountered & Solutions
+
+### 1️⃣ Fuzzy Matching of Vendors and Products
+A major challenge was matching vendor and product names between two companies when the names were slightly different. For example:
+- `Bella Pasta Co. Group` vs `Bella Pasta Co.`
+- `Basmati Rice 5Kg` vs `Basmati Rice 5000g`
+
+To solve this, I implemented **normalization techniques** and used the **RapidFuzz** library, which is based on optimized fuzzy string matching algorithms like Levenshtein distance and token set ratio. This allowed for intelligent matching of similar but non-identical strings with adjustable thresholds.
+
+### 2️⃣ Multiple Prices for the Same Product
+Another challenge was when the same product appeared under the same vendor with multiple prices. I assumed:
+- The **maximum price** is the original price
+- Lower prices are considered **discounted offers**
+- For simplicity, I only considered the minimum price as the discount price — even if more than two prices existed for the same product
+
+I built a dedicated section in the dashboard to identify such items. The user can select any vendor and view:
+- Which items were discounted
+- What the original price was
+- How much the discount was (absolute and percentage)
+
+
+---
 ## 🧱 Tech Stack
 
 | Layer        | Technology         |
@@ -63,29 +85,6 @@ baly-task/
 ### 🏷️ Discount Detector
 - Highlights vendors with multiple price listings
 - Helps identify where discounts may have been applied
-
----
-
-## 📈 Problems Encountered & Solutions
-
-### 1️⃣ Fuzzy Matching of Vendors and Products
-A major challenge was matching vendor and product names between two companies when the names were slightly different. For example:
-- `Bella Pasta Co. Group` vs `Bella Pasta Co.`
-- `Basmati Rice 5Kg` vs `Basmati Rice 5000g`
-
-To solve this, I implemented **normalization techniques** and used the **RapidFuzz** library, which is based on optimized fuzzy string matching algorithms like Levenshtein distance and token set ratio. This allowed for intelligent matching of similar but non-identical strings with adjustable thresholds.
-
-### 2️⃣ Multiple Prices for the Same Product
-Another challenge was when the same product appeared under the same vendor with multiple prices. I assumed:
-- The **maximum price** is the original price
-- Lower prices are considered **discounted offers**
-- For simplicity, I only considered the minimum price as the discount price — even if more than two prices existed for the same product
-
-I built a dedicated section in the dashboard to identify such items. The user can select any vendor and view:
-- Which items were discounted
-- What the original price was
-- How much the discount was (absolute and percentage)
-
 
 ---
 
