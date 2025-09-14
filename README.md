@@ -102,14 +102,7 @@ streamlit run app.py
 ---
 
 ## 🌐 Live Demo
-[View on Streamlit Cloud](https://<your-app-link>.streamlit.app)  ← *(replace with actual link when deployed)*
-
----
-
-## 👨‍💻 Author
-**Kadhim Jasim**  
-3rd-Year CS Student @ American University of Baghdad  
-US Green Card Holder · Internship Candidate for Baly BI Team
+[View on Streamlit Cloud](https://kjasim98-baly-task-app-srkx9g.streamlit.app/)
 
 ---
 
