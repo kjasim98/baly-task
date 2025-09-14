@@ -1,101 +1,209 @@
 import pandas as pd
 from rapidfuzz import process, fuzz
+import cleantext
+from pint import UnitRegistry
 
-# Normalize dataframe: clean vendor/product names, add *_clean columns, fix data types
+# Used for unit normalization (e.g., converting 1kg to 1000g)
+ureg = UnitRegistry()
+
 def normalize(df: pd.DataFrame) -> pd.DataFrame:
-    cols = ["VendorID", "vendorName", "productID", "productName", "productPrice"]
-    df = df[cols].copy()
-    for c in ["vendorName", "productName"]:
-        df[c] = df[c].astype(str).str.strip()
-        df[c + "_clean"] = df[c].str.lower().str.replace(r"\s+", " ", regex=True)
-    df["VendorID"] = df["VendorID"].astype(str)
-    df["productID"] = df["productID"].astype(str)
-    df["productPrice"] = pd.to_numeric(df["productPrice"], errors="coerce")
-    return df
+    """
+    Clean and normalize vendor and product data.
+    """
+    out = df[["VendorID", "vendorName", "productID", "productName", "productPrice"]].copy()
 
-# Fuzzy-align vendor and product names in c1 with c2, overwrite c1 *_clean values if match found
-def fuzzy_align_names(c1: pd.DataFrame, c2: pd.DataFrame, threshold: int = 90) -> pd.DataFrame:
-    out = c1.copy()
-    # vendors
-    choices_vendor = c2["vendorName_clean"].tolist()
-    best_vendor = out["vendorName_clean"].apply(
-        lambda x: process.extractOne(x, choices_vendor, scorer=fuzz.token_set_ratio, score_cutoff=threshold)
-    )
-    out["vendorName_clean"] = [
-        match[0] if match else orig
-        for orig, match in zip(out["vendorName_clean"], best_vendor)
-    ]
-    # products
-    choices_prod = c2["productName_clean"].tolist()
-    best_prod = out["productName_clean"].apply(
-        lambda x: process.extractOne(x, choices_prod, scorer=fuzz.token_set_ratio, score_cutoff=threshold)
-    )
-    out["productName_clean"] = [
-        match[0] if match else orig
-        for orig, match in zip(out["productName_clean"], best_prod)
-    ]
+    # Convert IDs to string type
+    out["VendorID"] = out["VendorID"].astype(str)
+    out["productID"] = out["productID"].astype(str)
+
+    # Clean vendor name
+    out["vendorName_clean"] = out["vendorName"].astype(str).str.lower().str.strip()
+
+    # Normalize product name and units
+    def canonicalize(prod):
+        cleaned = cleantext.clean(str(prod), lower=True, no_punct=True)
+        try:
+            for word in cleaned.split():
+                try:
+                    q = ureg.Quantity(word).to_base_units()
+                    normalized_unit = f"{int(q.m)} {q.u}"
+                    return cleaned.replace(word, normalized_unit)
+                except Exception:
+                    continue
+            return cleaned
+        except Exception:
+            return cleaned
+
+    out["productName_clean"] = out["productName"].apply(canonicalize)
+
+    # Convert price to numeric
+    out["productPrice"] = pd.to_numeric(out["productPrice"], errors="coerce")
+
     return out
 
-# Build vendor index table: show which vendors exist in both companies or only one
-def build_vendor_index(c1: pd.DataFrame, c2: pd.DataFrame) -> pd.DataFrame:
-    v1 = c1[["VendorID", "vendorName", "vendorName_clean"]].drop_duplicates("vendorName_clean")
-    v2 = c2[["VendorID", "vendorName", "vendorName_clean"]].drop_duplicates("vendorName_clean")
-    vendors = v1.merge(v2, on="vendorName_clean", how="outer", suffixes=("_c1", "_c2"), indicator=True)
-    vendors["match_status"] = vendors["_merge"].map(
-        {"both": "Matched", "left_only": "Only in Company1", "right_only": "Only in Company2"}
-    )
-    return vendors.drop(columns=["_merge"])
+def fuzzy_align_names(c1: pd.DataFrame, c2: pd.DataFrame, threshold=90) -> pd.DataFrame:
+    """
+    Align vendor and product names from c1 to c2 using fuzzy matching.
+    """
+    out = c1.copy()
 
-# Deduplicate rows: keep only the lowest price per (vendor, product)
-def deduplicate_min_price(df: pd.DataFrame) -> pd.DataFrame:
-    idx = df.groupby(["vendorName_clean", "productName_clean"])["productPrice"].idxmin()
-    return df.loc[idx].reset_index(drop=True)
+    for column in ["vendorName_clean", "productName_clean"]:
+        choices = c2[column].dropna().unique().tolist()
+        aligned = []
 
-# Build item match table: match products across vendors, compare prices if both exist
+        for value in out[column]:
+            match = process.extractOne(value, choices, scorer=fuzz.token_set_ratio, score_cutoff=threshold)
+            if match:
+                aligned.append(match[0])
+            else:
+                aligned.append(value)
+
+        out[column] = aligned
+
+    return out
+
+def deduplicate_max_price(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove duplicates and keep only the highest priced version of each item.
+    """
+    # Sort so that the highest price comes first
+    df_sorted = df.sort_values(["vendorName_clean", "productName_clean", "productPrice"], ascending=[True, True, False])
+    
+    # Drop duplicates, keeping the first (which will be the highest price due to sorting)
+    df_unique = df_sorted.drop_duplicates(["vendorName_clean", "productName_clean"], keep="first")
+    
+    return df_unique.reset_index(drop=True)
+
+def build_vendor_index(c1, c2):
+    """
+    Compare vendors between two companies and return match status.
+    """
+    left = c1[["vendorName", "vendorName_clean"]].drop_duplicates().rename(columns={"vendorName": "vendorName_c1"})
+    right = c2[["vendorName", "vendorName_clean"]].drop_duplicates().rename(columns={"vendorName": "vendorName_c2"})
+
+    vendors = left.merge(right, on="vendorName_clean", how="outer", indicator=True)
+
+    status_map = {
+        "both": "Matched",
+        "left_only": "Only in Company1",
+        "right_only": "Only in Company2"
+    }
+    vendors["match_status"] = vendors["_merge"].map(status_map)
+
+    return vendors
+
 def build_item_matches(c1: pd.DataFrame, c2: pd.DataFrame) -> pd.DataFrame:
+    """
+    Match items from two companies and compare their prices.
+    """
     keys = ["vendorName_clean", "productName_clean"]
+
+    # Rename columns to show company source
     left = c1.rename(columns={
         "VendorID": "VendorID_c1",
         "vendorName": "vendorName_c1",
         "productID": "productID_c1",
         "productName": "productName_c1",
-        "productPrice": "productPrice_c1",
+        "productPrice": "productPrice_c1"
     })
     right = c2.rename(columns={
         "VendorID": "VendorID_c2",
         "vendorName": "vendorName_c2",
         "productID": "productID_c2",
         "productName": "productName_c2",
-        "productPrice": "productPrice_c2",
+        "productPrice": "productPrice_c2"
     })
+
     items = left.merge(right, on=keys, how="outer", indicator=True)
 
-    def stat_map(x):
-        if x == "both":
-            return "Matched"
-        if x == "left_only":
-            return "Only in Company1"
-        return "Only in Company2"
+    # Set match status
+    status_map = {
+        "both": "Matched",
+        "left_only": "Only in Company1",
+        "right_only": "Only in Company2"
+    }
+    items["match_status"] = items["_merge"].map(status_map)
 
-    items["match_status"] = items["_merge"].map(stat_map)
-    items["price_relation_vs_c2"] = None
-    both_mask = items["match_status"] == "Matched"
-    items.loc[both_mask, "price_relation_vs_c2"] = (
-        items.loc[both_mask, "productPrice_c1"]
-        .compare(items.loc[both_mask, "productPrice_c2"], keep_shape=True)
-        .pipe(lambda _: None)
-    )
-    # price comparison
-    p1 = items["productPrice_c1"]
-    p2 = items["productPrice_c2"]
-    relation = pd.Series(index=items.index, dtype="object")
-    relation[both_mask & (p1 > p2)] = "Company1 Higher"
-    relation[both_mask & (p1 < p2)] = "Company1 Lower"
-    relation[both_mask & (p1 == p2)] = "Same"
-    items["price_relation_vs_c2"] = relation
+    # Compare prices for matched items
+    rel = pd.Series(index=items.index, dtype="object")
+    matched = items["match_status"] == "Matched"
+
+    price_c1 = items["productPrice_c1"]
+    price_c2 = items["productPrice_c2"]
+
+    rel[matched & (price_c1 > price_c2)] = "Company1 Higher"
+    rel[matched & (price_c1 < price_c2)] = "Company1 Lower"
+    rel[matched & (price_c1 == price_c2)] = "Same"
+
+    items["price_relation_vs_c2"] = rel
 
     return items
 
-# Calculate percentage safely (return 0 if denominator is 0)
-def percent(n, d):
-    return 0.0 if d == 0 else round(100.0 * n / d, 2)
+def percent(n: int, denom: int) -> int:
+    """
+    Calculate percentage safely.
+    """
+    if denom == 0:
+        return 0
+    return int(round(100 * n / denom))
+
+def get_vendors_with_price_duplicates(df: pd.DataFrame) -> list:
+    """
+    Return a list of vendor names that have at least one product 
+    with more than one distinct price.
+    """
+    dup = (
+        df.groupby(["vendorName_clean", "productName_clean"])["productPrice"]
+        .nunique()
+        .reset_index(name="unique_prices")
+    )
+
+    # Keep only where the same product has more than one price
+    dup = dup[dup["unique_prices"] > 1]
+
+    # Get unique vendor names
+    vendor_list = dup["vendorName_clean"].unique().tolist()
+    
+    return vendor_list
+
+def get_vendor_discounts(vendor_name: str, c1: pd.DataFrame, c2: pd.DataFrame) -> pd.DataFrame:
+    """
+    For a given vendor, checks both c1 and c2 for duplicate product prices,
+    and computes the min/max price, discounted price, and discount percentage (as % string).
+    
+    Returns a merged dataframe with results from both companies.
+    """
+    def process(df, label):
+        # Filter for vendor
+        vendor_df = df[df["vendorName_clean"] == vendor_name]
+
+        # Group by product, count unique prices
+        grouped = vendor_df.groupby("productName_clean")["productPrice"].agg(["min", "max", "nunique"]).reset_index()
+        grouped = grouped[grouped["nunique"] > 1]  # Only keep products with >1 price
+
+        # Rename columns
+        grouped = grouped.rename(columns={
+            "min": f"discounted_price_{label}",
+            "max": f"original_price_{label}"
+        })
+
+        # Calculate discount %
+        discount_col = f"discount_percent_{label}"
+        grouped[discount_col] = (
+            (grouped[f"original_price_{label}"] - grouped[f"discounted_price_{label}"]) /
+            grouped[f"original_price_{label}"] * 100
+        )
+
+        # Format as percentage string (e.g., 20.5 → "20.5%")
+        grouped[discount_col] = grouped[discount_col].round(2).astype(str) + "%"
+
+        return grouped[["productName_clean", f"discounted_price_{label}", f"original_price_{label}", discount_col]]
+
+    # Process both companies
+    d1 = process(c1, "c1")
+    d2 = process(c2, "c2")
+
+    # Merge on productName (outer join to keep all)
+    merged = pd.merge(d1, d2, on="productName_clean", how="outer")
+
+    return merged
