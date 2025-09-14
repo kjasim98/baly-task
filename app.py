@@ -76,14 +76,19 @@ same_price     = (matched_only["price_relation_vs_c2"] == "Same").sum()
 st.title("Vendors & Items Index")
 st.caption("Vendors & Items comparison dashboard")
 
-# Display KPIs in a horizontal layout
-kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
-kpi1.metric("Vendors (Company 1)", total_vendors_c1)
-kpi2.metric("Vendors (Company 2)", total_vendors_c2)
-kpi3.metric("Matched Vendors", matched_vendors)
-kpi4.metric("Items (Company 1)", total_items_c1)
-kpi5.metric("Items (Company 2)", total_items_c2)
-kpi6.metric("Matched Items", matched_items)
+# Vendors KPIs
+st.markdown("###  Vendor Overview")
+v1, v2, v3 = st.columns(3)
+v1.metric("Company 1 Vendors", total_vendors_c1)
+v2.metric("Company 2 Vendors", total_vendors_c2)
+v3.metric("Matched Vendors", matched_vendors)
+
+# Items KPIs
+st.markdown("###  Product Overview")
+i1, i2, i3 = st.columns(3)
+i1.metric("Company 1 Items", total_items_c1)
+i2.metric("Company 2 Items", total_items_c2)
+i3.metric("Matched Items", matched_items)
 
 st.divider()
 
@@ -190,40 +195,6 @@ else:
         s2.metric("Company 1 Lower",  f"{v_c1_lower} ({percent(v_c1_lower, denom_v)}%)")
         s3.metric("Same",              f"{v_same} ({percent(v_same, denom_v)}%)")
 
-    # Show unmatched items for this vendor in each company
-    # only_c1 = iview[iview["match_status"] == "Only in Company1"]
-    # only_c2 = iview[iview["match_status"] == "Only in Company2"]
-
-    # st.markdown("**Unmatched Items**")
-    # st.write("Only in Company1")
-    # if not only_c1.empty:
-    #     st.dataframe(
-    #         only_c1[["productName_c1", "productID_c1", "productPrice_c1"]]
-    #         .rename(columns={
-    #             "productName_c1": "productName (C1)",
-    #             "productID_c1": "productID (C1)",
-    #             "productPrice_c1": "productPrice (C1)",
-    #         }),
-    #         use_container_width=True, height=200
-    #     )
-    # else:
-    #     st.write("—")
-
-    # st.write("Only in Company2")
-    # if not only_c2.empty:
-    #     st.dataframe(
-    #         only_c2[["productName_c2", "productID_c2", "productPrice_c2"]]
-    #         .rename(columns={
-    #             "productName_c2": "productName (C2)",
-    #             "productID_c2": "productID (C2)",
-    #             "productPrice_c2": "productPrice (C2)",
-    #         }),
-    #         use_container_width=True, height=200
-    #     )
-    # else:
-    #     st.write("—")
-
-# Final tip to remind user they can refresh data if results look outdated
 st.divider()
 
 
