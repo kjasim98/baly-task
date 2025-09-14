@@ -207,16 +207,24 @@ selected_vendor = st.selectbox("Select a Vendor", all_problem_vendors)
 # ---------------------------
 # Show Discount Data
 # ---------------------------
-print(get_vendor_discounts("bluesea imports", c1_c, c2_c))
 if selected_vendor:
     # Get discount data
     df_result = get_vendor_discounts(selected_vendor, c1_c, c2_c)
+    df_result = df_result.rename(columns={
+        "productName_clean": "Product Name",
+        "original_price_c1": "Original Price (C1)",
+        "discounted_price_c1": "Discounted Price (C1)",
+        "discount_percent_c1": "Discount % (C1)",
+        "original_price_c2": "Original Price (C2)",
+        "discounted_price_c2": "Discounted Price (C2)",
+        "discount_percent_c2": "Discount % (C2)",
+        })
 
     # Reorder columns to desired order
     desired_order = [
-        "productName",
-        "original_price_c1", "discounted_price_c1", "discount_percent_c1",
-        "original_price_c2", "discounted_price_c2", "discount_percent_c2"
+        "Product Name",
+        "Original Price (C1)", "Discounted Price (C1)", "Discount % (C1)",
+        "Original Price (C2)", "Discounted Price (C2)", "Discount % (C2)",
     ]
 
     # Reorder only if all columns exist
