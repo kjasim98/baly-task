@@ -1,0 +1,10 @@
+# Ignore Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Ignore Streamlit environment
+.streamlit_env/
+
+# Ignore VSCode settings
+.vscode/
